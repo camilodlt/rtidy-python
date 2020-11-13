@@ -1,0 +1,222 @@
+---
+title: "Lasso regresssion on TripAdvisor dataset Part 2"
+author: "Camilo De La Torre"
+date: "11/3/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE,message = FALSE)
+```
+
+#### Packages 
+
+```{r,message=FALSE}
+if(!require("tidytext")){install.packages("tidytext")}
+if(!require("magrittr")){install.packages("magrittr")}
+if(!require("tidyverse")){install.packages("tidyverse")}
+if(!require("tidymodels")){install.packages("tidymodels")}
+if(!require("textrecipes")){install.packages("textrecipes")}
+if(!require("stopwords")){install.packages("stopwords")}
+if(!require("spacyr")){install.packages("spacyr")}
+if(!require("vip")){install.packages("vip")}
+if(!require("doParallel")){install.packages("doParallel")}
+
+library(tidytext)
+library(magrittr)
+library(tidyverse)
+library(tidymodels)
+library(textrecipes)
+library(stopwords)
+library("spacyr")
+library(vip)
+library(doParallel)
+
+# spacy_install()
+# spacy_download_langmodel("en_core_web_lg")
+spacy_initialize(model="en_core_web_lg")
+```
+
+### Importing 
+Let's import the csv file to a dataframe called tripadvisor.
+We will use the base R function to import the csv.
+```{r}
+setwd("~/Documents")
+tripadvisor<-read.csv(file="Blog/rtidy-python/Tripadvisor/Datasets/Kaggle/tripadvisor_hotel_reviews.csv",
+         header = TRUE, 
+         sep = ",", # the default
+         encoding = "UTF-8") 
+```
+### Some cleaning of the data  
+```{r}
+tripadvisor%<>%
+  dplyr::mutate(Review=iconv(Review,'utf-8', 'ascii', sub=''), # Remove the unicode characters
+                Review=str_remove_all(Review, pattern = "_*")) # remove the substitutes for the characters removed
+
+```
+
+### Initial split  
+Let s keep 80% for training and 20 for testing.
+That gives us 16395 rows for training and 4096 for testing our model. 
+
+```{r}
+set.seed(1234) # we set the seed to have reproducible results 
+tripadvisor_split <- tripadvisor%>%
+  initial_split(prop=0.8, strata = Rating) # we use the initial_splits who stores the split for us 
+
+tripadvisor_train <- training(tripadvisor_split) # we separate the split for training
+tripadvisor_test <- testing(tripadvisor_split) # and testing 
+```
+
+### Lasso regression  
+
+```{r}
+tune_spec <- multinom_reg(penalty = tune(), mixture = 1) %>%
+  set_mode("classification") %>%
+  set_engine("glmnet")
+
+tune_spec
+```
+### Recipe  
+
+Now let's create the recipe (i.e the steps that we are going to take in order to preprocess the data).  
+First we define the formula to use. In this case we are trying to predict the Rating with the content of the Review.  
+We use just pass the head of the dataframe because we only need the column's types not the data itself.  
+
+Several steps are taken: 
+- We tokenize with spacyr in order to use the mode "en" (in order to do the lemmatization, topic for another blog) 
+- We then remove stopwords that are included in the nltk dictionnary. (also topic for another blog).  
+- Then, we lemmatize the tokens that were not removed.=> this uses the spacyr package in the back. 
+- We keep the first 1000 tokens with the more frequency (after removing)
+- We calculate the TFIDF score for each token left and for each Review. 
+- Lastly, we scale all the columns (except for the Rating since it's not a predictor, each token is now a column, the values in each cell are the tfidf scores) because the Lasso regression that we define in the model step requires us to do so.  
+```{r}
+tripadvisor_recipe <- recipe(Rating ~ Review, data = tripadvisor_train%>% head()) %>%
+  step_mutate(Rating=factor(Rating, levels = c("5","4","3","2","1")))%>%
+  step_tokenize(Review, token = "words", engine="spacyr") %>% # lowers also characters 
+  step_stopwords(Review, stopword_source = "snowball")%>% 
+  step_lemma(Review)%>%
+  step_tokenfilter(Review, max_tokens = tune()) %>%
+  step_tfidf(Review) %>%
+  step_normalize(all_predictors())
+
+tripadvisor_recipe
+
+```
+
+### The workflow   
+```{r}
+tripadvisor_workflow <- workflow() %>% # initialize the workflow
+  add_recipe(tripadvisor_recipe)%>% # We add the recipe that we created (with the steps)
+  add_model(tune_spec) # We add the model that we specified (regression with glmnet)
+
+# Let's print it  
+tripadvisor_workflow
+```
+
+### Tuning the parameters. 
+We have to create a grid of values for the penalty. Each one of this values is going to be used for the tuning. The maximum value for the penalty is 1.  
+```{r}
+
+final_grid <- grid_regular(
+  penalty(range = c(-4, 0)),
+  max_tokens(c(50,700)),
+  levels = c(penalty = 15)
+)
+# Let's print the values for the penalty
+final_grid
+
+# Cross validation. 
+# This function splits the data randomly in equal sized "folds" or sets of data.
+# The default is 10 Folds. Each fold is separated in one set for analysis, one for assesment and a the total (the two combined).
+tripadvisor_folds <- vfold_cv(tripadvisor_train, v=10)
+
+# The foreach package is used by the tune package so we can use multiple processors to speed up the process. 
+
+# Do parallel 
+all_cores <- parallel::detectCores(logical = FALSE)
+cl <- parallel::makePSOCKcluster(all_cores,setup_strategy = "sequential")
+registerDoParallel(cl)
+
+# Tune package 
+final_rs <- tune_grid(
+  tripadvisor_workflow,# We pass the workflow 
+  tripadvisor_folds,# the 10 folds
+  grid = final_grid,# The grid for the penalty values to be used
+  metrics = metric_set(accuracy, roc_auc),# the metrics that we want to follow
+  control = control_grid(save_pred = T,pkgs = c("textrecipes"))# We save the predictions made at every fold trained
+)
+
+tuned<-final_rs %>%select_best("roc_auc")# We select the penalty that yields the best rmse 
+```
+### Visualizing the cross validation  
+```{r}
+final_rs %>%
+    collect_metrics() %>% # handy function to show the mean metrics for each penalty 
+  # Plot 
+    ggplot(aes(penalty, mean)) + 
+    geom_line(size = 1.5, alpha = 0.5) +# to connect the dots 
+    geom_point(size = 2, alpha = 0.9) +
+    facet_wrap(~.metric, scales = "free_y") + 
+    scale_x_log10() +
+    labs(
+        title = "Metrics by associated penalty values for Lasso regression"
+    )
+```
+### Finalyze a workflow 
+In order to finalize a workflow, we pass the best tuned parameters that were given by the select_best function
+```{r}
+final_wf <- finalize_workflow(
+  tripadvisor_workflow,# our previous workflow
+  tuned # the best parameter
+)
+# This is what it looks like
+final_wf
+```
+### Last fit and important predictors  
+In order to assess the model, we validate our model with the testing set. This is done nicely by the last fit function. But first, we fit the model to the traning data one last time to inspect the most important predictors and their effect in the predicted outcome.  
+```{r}
+# Last Fit 
+final_fit <- final_wf %>% # we use our finalyzed workflow (the one with the parameter specified)
+  fit(tripadvisor_train) %>% # we fit the training data 
+  pull_workflow_fit()# we substract the result from glmnet 
+
+final_fit_vi<-final_fit%>% vi(lambda = tuned$penalty)# and use the vip package to get the estimators and their sign (positive or negative)
+
+# Let's visualize the 50 most important predictors (25 positives and 25 negatives)
+final_fit_vi %>%
+  mutate(
+    Importance = abs(Importance), # so every bar goes to the right
+    Variable = str_remove_all(Variable, "tfidf_Review_")# we remove the preffix from the columns, this preffix was given in the step_tfidf from the recipe
+  ) %>%
+  group_by(Sign) %>%# group by sign for facetting
+  top_n(25, Importance) %>% # select the top 25 with dplyr
+  ungroup() %>%
+  # Plot 
+  ggplot(aes(
+    x = Importance,
+    y = fct_reorder(Variable, Importance),
+    fill = Sign
+  )) +
+  geom_col(show.legend = FALSE) +
+  scale_x_continuous(expand = c(0, 0)) +
+  facet_wrap(~Sign, scales = "free") +
+  labs(
+    y = NULL,
+    title = "Variable importance"
+  )
+```
+Now that we know this, let's run the last fit to see how our model behaves with data it has never seen. We can see the metric:
+```{r}
+final_fitted <- last_fit(
+  final_wf,# the finalyzed workflow
+  tripadvisor_split # The initial split 
+)
+# Collecting the metrics 
+final_fitted %>%
+  collect_metrics()
+
+# Collecting the predictions 
+final_fitted %>%
+  collect_predictions()
+```
