@@ -1,5 +1,5 @@
 ---
-title: "Mobile and Landline subscription per country"
+title: "Mobile and Landline subscription per country (Tidytuesday)"
 output: html_document
 ---
 
@@ -127,7 +127,7 @@ gridExtra::grid.arrange(mobile_mean_plot,landline_mean_plot, ncol=2)
 ```
 Mobile subscription grew very rapidly in all continents since 1990. Africa was the last continent to start this transition no numeric devices.  
 
-However, the rise of African mobile users since 2004 - 2005 is remarkable. In 2000 Africa had 2.54 mobile users/100 while Europe had 40.3 users/100 people (in other words, Europe was, o, average, 15 to 16 times more equipped in mobile devices than Africa). This vast subscription difference became smaller every year, in 2010 Africa already had 55.8 mobile subscription/ 100 people while Europe had 116 (this time Europe was twice as equipped with mobiles than Africa). In 2017, Europe had only 40% more mobiles subcriptions per 100 people than Africa.  
+However, the rise of African mobile users since 2004 - 2005 is remarkable. In 2000 Africa had 2.54 mobile users/100 while Europe had 40.3 users/100 people (in other words, Europe was, o, average, 15 to 16 times more equipped in mobile devices than Africa). This vast subscription difference became smaller every year, in 2010 Africa already had 55.8 mobile subscription/ 100 people while Europe had 116 (this time Europe was twice as equipped with mobiles than Africa). In 2017, Europe had only 40% more mobiles subscriptions per 100 people than Africa.  
 
 It's also interesting to see that since 2007, Europe citizens had, on average, more than one mobile subscription per person. This upward trend seems to plateau since 2010 for Europe and Americas.  
 
@@ -200,7 +200,7 @@ rates%>%
   labs(title="Mobile subscriptions growth rate per continent")
 
 ```
-As we saw with the precedent graph, Africa joined the trend tardily but when it did, for several years, the mobile subscription per 100 people more than doubled. The other continents had some ups and downs regarding the growth rate per year. Since 2010, the five continents display a very similar mobile subscriptions growth per year.  
+As we saw with the precedent graph, Africa joined the trend tardily but when it did, for several years, the mobile subscription per 100 people more than doubled. The other continents had some ups and downs regarding the growth rate per year. Since 2010, the five continents display a very similar mobile subscriptions' growth per year.  
 
 ### Animate our last plot  
 We will use gganimate to turn our plot more dynamic.  
@@ -242,6 +242,8 @@ evol_annimate<-ggplot(country_rates, aes(year, evolution, color = entity)) +
   # if you want to save it 
 anim_save(filename="gif.continents.evol.gif", animation = animate(evol_annimate,height = 800, width =800))
 ```
+
+As we saw, in all continents, countries converged to roughly the same mobile subscription' growth rate. As with the other graphs, it seems that European countries were the first ones to stagnate its mobile subscription rate (since they started the mobile transition early on). The other continents, although a little late, join the global trend.  
 
 Showing shadows instead of lines:  
 
