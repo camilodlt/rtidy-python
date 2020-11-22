@@ -11,6 +11,13 @@ knitr::opts_chunk$set(echo = TRUE, warning = FALSE,message = FALSE)
 
 #### Packages 
 
+This time we will be using Spacyr package to tokenize the reviews. The difference between tokenizers and Spacyr is that with Spacyr we can then use step_lemma that performs lemmatization.  
+You can take a look at the [vignette here](https://cran.r-project.org/web/packages/spacyr/vignettes/using_spacyr.html) or the [documentation here](https://github.com/quanteda/spacyr).  *
+
+Notice: 
+- to install and use SpaCy you need to have Python installed in your computer.  
+- You need to install SpaCy before using it. You can achieve this using the spacy_install() command that will install SpaCy in your conda environment.  
+
 ```{r,message=FALSE}
 if(!require("tidytext")){install.packages("tidytext")}
 if(!require("magrittr")){install.packages("magrittr")}
@@ -32,14 +39,16 @@ library("spacyr")
 library(vip)
 library(doParallel)
 
+# Installing Spacyr for the first time 
 # spacy_install()
 # spacy_download_langmodel("en_core_web_lg")
+
+# Initialize SpaCyr with the large english model 
 spacy_initialize(model="en_core_web_lg")
 ```
 
-### Importing 
-Let's import the csv file to a dataframe called tripadvisor.
-We will use the base R function to import the csv.
+### Importing  
+As usual we import the tripAdvisor dataframe.  
 ```{r}
 setwd("~/Documents")
 tripadvisor<-read.csv(file="Blog/rtidy-python/Tripadvisor/Datasets/Kaggle/tripadvisor_hotel_reviews.csv",
@@ -47,9 +56,12 @@ tripadvisor<-read.csv(file="Blog/rtidy-python/Tripadvisor/Datasets/Kaggle/tripad
          sep = ",", # the default
          encoding = "UTF-8") 
 ```
+
 ### Some cleaning of the data  
+We remove some unicode characters that won't be used as tokens.  
+
 ```{r}
-tripadvisor%<>%
+tripadvisor %<>%
   dplyr::mutate(Review=iconv(Review,'utf-8', 'ascii', sub=''), # Remove the unicode characters
                 Review=str_remove_all(Review, pattern = "_*")) # remove the substitutes for the characters removed
 
@@ -70,41 +82,65 @@ tripadvisor_test <- testing(tripadvisor_split) # and testing
 
 ### Lasso regression  
 
+We define our model. We are tuning a Lasso model and tuning its regularization parameter.  
 ```{r}
 tune_spec <- multinom_reg(penalty = tune(), mixture = 1) %>%
-  set_mode("classification") %>%
-  set_engine("glmnet")
-
-tune_spec
+  set_mode("classification") %>% # we set the classification mode 
+  set_engine("glmnet") # using gmlnet for the computation 
 ```
+
 ### Recipe  
 
 Now let's create the recipe (i.e the steps that we are going to take in order to preprocess the data).  
-First we define the formula to use. In this case we are trying to predict the Rating with the content of the Review.  
-We use just pass the head of the dataframe because we only need the column's types not the data itself.  
+We are trying to predict the hotels' ratings by the content of the reviews. So, we use a formula of the type : `r Rating ~ Review`.  
 
 Several steps are taken: 
-- We tokenize with spacyr in order to use the mode "en" (in order to do the lemmatization, topic for another blog) 
-- We then remove stopwords that are included in the nltk dictionnary. (also topic for another blog).  
-- Then, we lemmatize the tokens that were not removed.=> this uses the spacyr package in the back. 
-- We keep the first 1000 tokens with the more frequency (after removing)
+- We tokenize with SpaCyr (in order to do the lemmatization)  
+- We then remove stopwords that are included in the snowball dictionnary. 
+- Then, we lemmatize the tokens that were not removed.=> this uses the spacyr package in the back.  
+- We tune the parameter of the maximum number of tokens to be used.  
 - We calculate the TFIDF score for each token left and for each Review. 
 - Lastly, we scale all the columns (except for the Rating since it's not a predictor, each token is now a column, the values in each cell are the tfidf scores) because the Lasso regression that we define in the model step requires us to do so.  
+
+## Demonstrate the purpose of lemmatization  
+
+Lemmatization groups together the multiple [inflected](https://en.wikipedia.org/wiki/Inflection) words into the original [lemma](https://en.wikipedia.org/wiki/Lemma_(morphology)).  
+
+The idea is that words providing the same meaning (but in different forms) are grouped so that they are later evaluated only by one metric (tfidf for example). We would prefer to have only one tfidf for 'do', 'did','does'. 
+
+Let's say we have the phrase: "Didn't enjoy our stay at the Hotel. I expected more. Food did not arrive at the good temperature. When we arrived, nobody welcomed us. I expect that they improve their standards soon."  
 ```{r}
+example_phrase<- "Didn't enjoy our stay at the Hotel. I expected more. Food did not arrive at the good temperature. When we arrived, nobody welcomed us. I expect that they improve their standards soon."
+
+spacyr::spacy_parse(example_phrase)%>% 
+  pull(lemma) %>% paste(collapse = " ")
+```
+As we can see, *did* was transformed to *do*, *n't* to *not*, *expected* to *expect*, *arrived* to *arrive*, *welcomed* to *welcome* and so on. Also, *Our*,*I*,*we* were grouped into *PRON*.  
+
+Last time we removed nltk stopwords. This time we will remove the stopwords from [*marimo*](https://github.com/koheiw/marimo). It is an extension from snowball but the really interesting thing is that you can opt-out from some categories. To that matter, we will use all the words in english except the adverbs because I think that words like "not", "few", "little" could be useful.  
+
+We can implement the lemmatization in our pipeline with step_lemma(). 
+
+This time we also tune the maximum number of tokens to be kept for the model.  
+
+```{r recipe}
+# Recipe 
+
 tripadvisor_recipe <- recipe(Rating ~ Review, data = tripadvisor_train%>% head()) %>%
   step_mutate(Rating=factor(Rating, levels = c("5","4","3","2","1")))%>%
-  step_tokenize(Review, token = "words", engine="spacyr") %>% # lowers also characters 
-  step_stopwords(Review, stopword_source = "snowball")%>% 
-  step_lemma(Review)%>%
+  step_tokenize(Review, token = "words", engine="spacyr") %>% # lowers also characters. SpaCyr just support token="words"
+  step_stopwords(Review, custom_stopword_source = unlist(stopwords::data_stopwords_marimo$en[-5], use.names = F))%>% 
+  step_lemma(Review)%>% 
   step_tokenfilter(Review, max_tokens = tune()) %>%
   step_tfidf(Review) %>%
   step_normalize(all_predictors())
 
-tripadvisor_recipe
-
 ```
 
 ### The workflow   
+
+We add our recipe and our model to a worflow.  
+Let's take a look at the workflow to have a summary of what we are building. 
 ```{r}
 tripadvisor_workflow <- workflow() %>% # initialize the workflow
   add_recipe(tripadvisor_recipe)%>% # We add the recipe that we created (with the steps)
@@ -114,22 +150,19 @@ tripadvisor_workflow <- workflow() %>% # initialize the workflow
 tripadvisor_workflow
 ```
 
-### Tuning the parameters. 
-We have to create a grid of values for the penalty. Each one of this values is going to be used for the tuning. The maximum value for the penalty is 1.  
-```{r}
+### Tuning the parameters.  
 
+Now we tune all the parameters that we defined. We have to provide values to try for penalty and max_tokens.  We create 10 values for each (10*10 combinations= 100 models)
+```{r}
 final_grid <- grid_regular(
   penalty(range = c(-4, 0)),
-  max_tokens(c(50,700)),
-  levels = c(penalty = 15)
+  max_tokens(c(50,1000)),
+  levels = c(penalty = 10)
 )
-# Let's print the values for the penalty
-final_grid
 
 # Cross validation. 
-# This function splits the data randomly in equal sized "folds" or sets of data.
-# The default is 10 Folds. Each fold is separated in one set for analysis, one for assesment and a the total (the two combined).
-tripadvisor_folds <- vfold_cv(tripadvisor_train, v=10)
+# Train models on V-1 models and assess the model on the partition that wasn't used. 
+tripadvisor_folds <- vfold_cv(tripadvisor_train, v=10, repeats = 3)
 
 # The foreach package is used by the tune package so we can use multiple processors to speed up the process. 
 
@@ -144,40 +177,59 @@ final_rs <- tune_grid(
   tripadvisor_folds,# the 10 folds
   grid = final_grid,# The grid for the penalty values to be used
   metrics = metric_set(accuracy, roc_auc),# the metrics that we want to follow
-  control = control_grid(save_pred = T,pkgs = c("textrecipes"))# We save the predictions made at every fold trained
+  control = control_grid(save_pred = F,pkgs = c("textrecipes"))# We save the predictions made at every fold trained
 )
 
-tuned<-final_rs %>%select_best("roc_auc")# We select the penalty that yields the best rmse 
+tuned<-final_rs %>%select_best("accuracy")# We select the penalty that yields the best accuracy 
 ```
+
+Let's take a look at the best parameters found:  
+```{r}
+tuned
+```
+We can see the results that we obtained with this specification :
+
+```{r}
+final_rs$.metrics%>% map_dfr(~filter(.x,penalty==tuned$penalty, max_tokens==tuned$max_tokens ))%>% group_by(.metric)%>% summarise(estimate=mean(.estimate))
+```
+
 ### Visualizing the cross validation  
+
 ```{r}
 final_rs %>%
     collect_metrics() %>% # handy function to show the mean metrics for each penalty 
   # Plot 
-    ggplot(aes(penalty, mean)) + 
+    ggplot(aes(penalty, mean, color=max_tokens)) + 
     geom_line(size = 1.5, alpha = 0.5) +# to connect the dots 
     geom_point(size = 2, alpha = 0.9) +
     facet_wrap(~.metric, scales = "free_y") + 
+    scale_color_viridis_c()+
     scale_x_log10() +
     labs(
         title = "Metrics by associated penalty values for Lasso regression"
     )
 ```
-### Finalyze a workflow 
-In order to finalize a workflow, we pass the best tuned parameters that were given by the select_best function
+We can see that :   
+- More tokens is better up to a point.  
+- Both metrics fall rapidly after the penalty keeps increasing over 0.01.  
+- The best results are obtained with an small penalty parameter and a high number of tokens.  
+
+### Finalyze a workflow  
+In order to finalize a workflow, we pass the best tuned parameters that were given by the select_best function. Models will then be trained using the parameters that we found.    
 ```{r}
 final_wf <- finalize_workflow(
   tripadvisor_workflow,# our previous workflow
   tuned # the best parameter
 )
-# This is what it looks like
-final_wf
+
 ```
+
 ### Last fit and important predictors  
-In order to assess the model, we validate our model with the testing set. This is done nicely by the last fit function. But first, we fit the model to the traning data one last time to inspect the most important predictors and their effect in the predicted outcome.  
+
+We perform a fit to the training data to gain more insight. And then we test our results with the testing set.  
 ```{r}
 # Last Fit 
-final_fit <- final_wf %>% # we use our finalyzed workflow (the one with the parameter specified)
+final_fit <- final_wf %>% # we use our finalyzed workflow 
   fit(tripadvisor_train) %>% # we fit the training data 
   pull_workflow_fit()# we substract the result from glmnet 
 
@@ -206,6 +258,10 @@ final_fit_vi %>%
     title = "Variable importance"
   )
 ```
+Excellent, great, fantastic, perfect, wonderful... are words that increase the chances of the reviews (and the hotels) to have a high rating. On the contrary, bad, poor, rude, dirty, ok ... are associated with low ratings.  
+
+We can see that customers complained about the loudness, the location, the space and the smell. Happy customers were probably satisfied with the opposite experiences ("spacious", quiet, spotless, decorate..)
+
 Now that we know this, let's run the last fit to see how our model behaves with data it has never seen. We can see the metric:
 ```{r}
 final_fitted <- last_fit(
@@ -216,7 +272,23 @@ final_fitted <- last_fit(
 final_fitted %>%
   collect_metrics()
 
-# Collecting the predictions 
-final_fitted %>%
-  collect_predictions()
+save.image(file="Spacyr.RData")
+
 ```
+
+We obtain 0.608 accuracy on the testing data (0.59 on training) and a ROC AUC of 0.843.  
+
+Let's see the confusion matrix:  
+
+```{r, dpi=300}
+final_fitted %>%
+     collect_predictions()%>% conf_mat(truth=Rating, estimate=.pred_class)%>% autoplot("heatmap")
+```
+
+Our model performs better on 5 and 1 stars ratings than on 2,3 and 4. 
+```{r}
+final_fitted %>%
+     collect_predictions() %>% group_by(.pred_class)%>%
+     accuracy(Rating, .pred_class)
+```
+
