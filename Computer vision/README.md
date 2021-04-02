@@ -3,5 +3,5 @@ Computer Vision task that mainly use Deep Learning
 ### Animals on small dataset: 
 **The idea is to classify photos of cats, dogs and pandas.** 
 Explores the use of data augmentation to enhance classification performance. 
-This techinique is used because the dataset is very small (2500 photos on training) so normally DL tends to pverfit rapidly. 
+This techinique is used because the dataset is very small (2500 photos on training) so normally DL tends to overfit rapidly. 
 With regularization, dropout and data augmentation we are able to fight the smalness of the dataset at hand. 
