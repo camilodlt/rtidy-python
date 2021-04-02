@@ -16,3 +16,11 @@ Id and secret codes are needed to use the Pole Emploi's APIs. These can be gener
 
 ## Outputs  
 The script delivers a list of current apprentice positions returned by the la bonne alternance API and their respective url to go and check the role as well as a list of companies that could potentially welcome me in september for an apprentice position in the area.  
+
+## Screenshots 
+### Option to choose specific (and multiple) professions for the search  
+![](https://github.com/camilodlt/rtidy-python/blob/cbccd18560088578c3cd60746064ebd8b0cbb614/ALTERNANCE_API_CALL/screenshots/Screenshot%202021-04-02%2015.00.05.png)
+### Positions found by the API   
+![](https://github.com/camilodlt/rtidy-python/blob/cbccd18560088578c3cd60746064ebd8b0cbb614/ALTERNANCE_API_CALL/screenshots/Screenshot%202021-04-02%2015.00.38.png)
+### Companies found by the API likely to hire  
+![](https://github.com/camilodlt/rtidy-python/blob/cbccd18560088578c3cd60746064ebd8b0cbb614/ALTERNANCE_API_CALL/screenshots/Screenshot%202021-04-02%2015.00.51.png)
