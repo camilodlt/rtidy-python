@@ -14,7 +14,9 @@ I found very useful information here:
 - [Julia documentation](https://docs.julialang.org/en/v1/)
 
 ### Notebooks  
-- **Wine's classes**
-Wine's classes was infered by KNN and Logistic regression using MLJ and other packages. 
-Results are great altough not the main the iterest. 
-In particular we got to train a **multi-label classifier** and **coerce the scientific types** to more suitable types. 
+
+- [**Wine's classes**](../blob/main/CLASSIFICATION/JULIA_MLJ/Wine.ipynb)
+
+Wine's classes was infered by KNN and Logistic regression using MLJ and other packages.  
+Results are great altough not the main the iterest.   
+In particular we got to train a **multi-label classifier** and **coerce the scientific types** to more suitable types.  
