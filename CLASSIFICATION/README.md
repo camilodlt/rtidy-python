@@ -15,7 +15,7 @@ I found very useful information here:
 
 ### Notebooks  
 
-- [**Wine's classes**](../blob/main/CLASSIFICATION/JULIA_MLJ/Wine.ipynb)
+- [**Wine's classes**](../CLASSIFICATION/JULIA_MLJ/Wine.ipynb)
 
 Wine's classes was infered by KNN and Logistic regression using MLJ and other packages.  
 Results are great altough not the main the iterest.   
